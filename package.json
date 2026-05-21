@@ -1,7 +1,7 @@
 {
   "name": "aw-20-mcp",
-  "version": "0.1.0",
-  "description": "A starter Model Context Protocol server for the AW_20 canon archive.",
+  "version": "0.3.0",
+  "description": "Structured MCP server for the AW_20 canon archive.",
   "type": "module",
   "private": true,
   "bin": {
