@@ -1,6 +1,6 @@
 {
   "name": "aw-20-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Structured MCP server for the AW_20 canon archive.",
   "type": "module",
   "private": true,
