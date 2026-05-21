@@ -11,10 +11,20 @@ import {
   searchCanon,
 } from './canon.js';
 
+import {
+  canonFingerprint,
+  semanticSearch,
+} from './semantic.js';
+
+import {
+  getStoryState,
+  updateStoryState,
+} from './state.js';
+
 const server = new Server(
   {
     name: 'aw-20-mcp',
-    version: '0.2.0',
+    version: '0.3.0',
   },
   {
     capabilities: {
@@ -28,20 +38,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search_canon',
-        description: 'Semantic-style keyword search across AW_20 canon files.',
+        description: 'Weighted keyword search across canon files.',
         inputSchema: {
           type: 'object',
           properties: {
-            query: {
-              type: 'string',
-            },
+            query: { type: 'string' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'semantic_search',
+        description: 'Local semantic similarity search across canon.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
           },
           required: ['query'],
         },
       },
       {
         name: 'list_canon_files',
-        description: 'List indexed canon files and headings.',
+        description: 'List indexed canon files.',
         inputSchema: {
           type: 'object',
           properties: {},
@@ -49,15 +68,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'get_canon_file',
-        description: 'Retrieve a canon file by path.',
+        description: 'Retrieve a canon file.',
         inputSchema: {
           type: 'object',
           properties: {
-            path: {
-              type: 'string',
-            },
+            path: { type: 'string' },
           },
           required: ['path'],
+        },
+      },
+      {
+        name: 'get_story_state',
+        description: 'Read continuity and active story state.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'update_story_state',
+        description: 'Update continuity state.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            currentArc: { type: 'string' },
+            activeTimeline: { type: 'string' },
+          },
+        },
+      },
+      {
+        name: 'canon_fingerprint',
+        description: 'Generate a deterministic hash of canon state.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
     ],
@@ -69,15 +113,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (tool === 'search_canon') {
     const query = String(request.params.arguments?.query ?? '');
-    const results = searchCanon(query);
 
     return {
       content: [
         {
           type: 'text',
-          text: results.length
-            ? JSON.stringify(results, null, 2)
-            : 'No canon matches found.',
+          text: JSON.stringify(searchCanon(query), null, 2),
+        },
+      ],
+    };
+  }
+
+  if (tool === 'semantic_search') {
+    const query = String(request.params.arguments?.query ?? '');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(semanticSearch(query), null, 2),
         },
       ],
     };
@@ -96,15 +150,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (tool === 'get_canon_file') {
     const filePath = String(request.params.arguments?.path ?? '');
-    const document = getCanonFile(filePath);
 
     return {
       content: [
         {
           type: 'text',
-          text: document
-            ? JSON.stringify(document, null, 2)
-            : 'Canon file not found.',
+          text: JSON.stringify(getCanonFile(filePath) ?? null, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (tool === 'get_story_state') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(getStoryState(), null, 2),
+        },
+      ],
+    };
+  }
+
+  if (tool === 'update_story_state') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(updateStoryState(request.params.arguments ?? {}), null, 2),
+        },
+      ],
+    };
+  }
+
+  if (tool === 'canon_fingerprint') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: canonFingerprint(),
         },
       ],
     };
