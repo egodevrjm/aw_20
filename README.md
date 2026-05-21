@@ -1,13 +1,38 @@
 # AW_20 MCP Server
 
-A starter MCP (Model Context Protocol) server for the AW_20 universe.
+Structured MCP server for the AW_20 canon universe.
 
 ## Features
 
-- `search_canon`
-- Markdown/text canon search
-- TypeScript + Node.js
-- MCP SDK ready
+- Recursive canon indexing
+- Markdown heading extraction
+- Weighted canon search
+- MCP tool endpoints
+- TypeScript and Node.js
+- GitHub Actions build workflow
+
+## MCP Tools
+
+### search_canon
+Search all canon files.
+
+Example:
+
+```txt
+search_canon("Kensington")
+```
+
+### list_canon_files
+List indexed canon files.
+
+### get_canon_file
+Retrieve a canon file by path.
+
+Example:
+
+```txt
+get_canon_file("characters/alex-wilson.md")
+```
 
 ## Setup
 
@@ -23,43 +48,35 @@ npm start
 npm run dev
 ```
 
-## Canon Files
-
-Place lore files inside:
-
-```txt
-/canon
-```
-
-Example:
+## Suggested Canon Layout
 
 ```txt
 canon/
-  alex.md
-  timeline.md
-  locations.md
+  characters/
+  locations/
+  timelines/
+  songs/
+  fashion/
 ```
 
-## MCP Tool
-
-### search_canon
-
-Searches canon files for matching text.
-
-Example:
+## Architecture
 
 ```txt
-search_canon("Kensington")
+MCP Client
+  ↓
+AW_20 MCP Server
+  ↓
+Canon Index
+  ↓
+Markdown and JSON files
 ```
 
-## Next Steps
+## Planned Next Steps
 
-Planned:
-
-- semantic vector search
+- semantic search
 - embeddings
-- character endpoints
 - timeline queries
-- continuity state
-- multi-version canon support
-- GitHub-backed indexing
+- continuity memory
+- version switching
+- graph relationships
+- Supabase vector support
