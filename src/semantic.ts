@@ -6,6 +6,15 @@ export type SemanticResult = SearchResult & {
   similarity: number;
 };
 
+export type CanonFingerprint = {
+  hash: string;
+  algorithm: 'sha256';
+  documentCount: number;
+  totalWords: number;
+  generatedAt: string;
+  paths: string[];
+};
+
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -73,13 +82,25 @@ export function semanticSearch(query: string, limit = 10): SemanticResult[] {
     .slice(0, limit);
 }
 
-export function canonFingerprint(): string {
+export function canonFingerprint(): CanonFingerprint {
+  const documents = loadCanon().sort((a, b) => a.path.localeCompare(b.path));
   const hash = crypto.createHash('sha256');
 
-  for (const document of loadCanon()) {
+  for (const document of documents) {
     hash.update(document.path);
+    hash.update('\n');
+    hash.update(document.title);
+    hash.update('\n');
     hash.update(document.content);
+    hash.update('\n---AW20-DOC---\n');
   }
 
-  return hash.digest('hex');
+  return {
+    hash: hash.digest('hex'),
+    algorithm: 'sha256',
+    documentCount: documents.length,
+    totalWords: documents.reduce((total, document) => total + document.wordCount, 0),
+    generatedAt: new Date().toISOString(),
+    paths: documents.map((document) => document.path),
+  };
 }
