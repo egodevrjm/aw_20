@@ -13,13 +13,14 @@ import {
 } from '../src/canon.js';
 import { semanticSearch } from '../src/semantic.js';
 import { canonFingerprint } from '../src/semantic.js';
+import { buildSceneBrief } from '../src/intelligence.js';
 import { getStoryState, updateStoryState } from '../src/state.js';
 
 function createServer() {
   const server = new Server(
     {
       name: 'aw-20-mcp',
-      version: '0.7.0',
+      version: '0.8.0',
     },
     {
       capabilities: {
@@ -30,6 +31,37 @@ function createServer() {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      {
+        name: 'scene_builder',
+        description: 'Build a canon-grounded scene brief: likely characters, location/room context, building notes, relevant canon, and continuity warnings before writing a scene.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            premise: {
+              type: 'string',
+              description: 'The scene premise or user request.',
+            },
+            location: {
+              type: 'string',
+              description: 'Optional location or room to ground the scene in.',
+            },
+            characters: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional characters the user expects in the scene.',
+            },
+            purpose: {
+              type: 'string',
+              description: 'Optional dramatic or narrative purpose of the scene.',
+            },
+            tone: {
+              type: 'string',
+              description: 'Optional tone, e.g. comic, romantic, tense, press cut, grounded realism.',
+            },
+          },
+          required: ['premise'],
+        },
+      },
       {
         name: 'canon_check',
         description: 'Check whether a name, concept, place, object, event, or claim is supported by AW_20 canon before using it in writing.',
@@ -106,7 +138,16 @@ function createServer() {
 
     let result: unknown;
 
-    if (tool === 'canon_check') result = canonCheck(String(args.query ?? ''));
+    if (tool === 'scene_builder') {
+      result = buildSceneBrief({
+        premise: String(args.premise ?? ''),
+        location: args.location ? String(args.location) : undefined,
+        characters: Array.isArray(args.characters) ? args.characters.map(String) : undefined,
+        purpose: args.purpose ? String(args.purpose) : undefined,
+        tone: args.tone ? String(args.tone) : undefined,
+      });
+    }
+    else if (tool === 'canon_check') result = canonCheck(String(args.query ?? ''));
     else if (tool === 'search_canon') result = searchCanon(String(args.query ?? ''));
     else if (tool === 'semantic_search') result = semanticSearch(String(args.query ?? ''));
     else if (tool === 'list_canon_files') result = listCanonFiles();
