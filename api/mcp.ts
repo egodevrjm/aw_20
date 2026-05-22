@@ -14,13 +14,17 @@ import {
 import { semanticSearch } from '../src/semantic.js';
 import { canonFingerprint } from '../src/semantic.js';
 import { buildSceneBrief } from '../src/intelligence.js';
+import { queryCalendar } from '../src/calendar.js';
+import { wallCheck } from '../src/wall.js';
+import { characterLookup } from '../src/characters.js';
+import { appendLedger } from '../src/ledger.js';
 import { getStoryState, updateStoryState } from '../src/state.js';
 
 function createServer() {
   const server = new Server(
     {
       name: 'aw-20-mcp',
-      version: '0.9.0',
+      version: '1.0.0',
     },
     {
       capabilities: {
@@ -31,6 +35,68 @@ function createServer() {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      {
+        name: 'events_calendar_query',
+        description: 'Query the structured AW_20 events diary/calendar by date range and filters such as city, diary_layer, alex_default_status, and privacy_risk.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            start_date: { type: 'string', description: 'Inclusive start date, YYYY-MM-DD.' },
+            end_date: { type: 'string', description: 'Inclusive end date, YYYY-MM-DD.' },
+            city: { type: 'string' },
+            country: { type: 'string' },
+            event_kind: { type: 'string' },
+            category: { type: 'string' },
+            alex_default_status: { type: 'string' },
+            diary_layer: { type: 'string' },
+            privacy_risk: { type: 'string' },
+            limit: { type: 'number' },
+          },
+        },
+      },
+      {
+        name: 'wall_check',
+        description: 'Check a character or role against The Wall knowledge gate and return their access level before writing dialogue, thoughts, texts, posts, or reactions.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            character: {
+              type: 'string',
+              description: 'Character name or role to check, e.g. Rosie, Knight Frank, press, London Lot, Serena Management.',
+            },
+          },
+          required: ['character'],
+        },
+      },
+      {
+        name: 'get_character',
+        description: 'Aggregated character lookup: canon status, likely canon files, relationship evidence, voice evidence, knowledge evidence, and Wall access guidance.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Character name to look up.',
+            },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'append_ledger',
+        description: 'Append a structured, durable ledger entry separate from story state: session, date, category, fact, and optional source.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            session: { type: 'string' },
+            date: { type: 'string', description: 'Event or session date, preferably YYYY-MM-DD.' },
+            category: { type: 'string' },
+            fact: { type: 'string' },
+            source: { type: 'string' },
+          },
+          required: ['category', 'fact'],
+        },
+      },
       {
         name: 'scene_builder',
         description: 'Build a canon-grounded scene brief: likely characters, location/room context, building notes, relevant canon, and continuity warnings before writing a scene.',
@@ -142,7 +208,32 @@ function createServer() {
 
     let result: unknown;
 
-    if (tool === 'scene_builder') {
+    if (tool === 'events_calendar_query') {
+      result = queryCalendar({
+        start_date: args.start_date ? String(args.start_date) : undefined,
+        end_date: args.end_date ? String(args.end_date) : undefined,
+        city: args.city ? String(args.city) : undefined,
+        country: args.country ? String(args.country) : undefined,
+        event_kind: args.event_kind ? String(args.event_kind) : undefined,
+        category: args.category ? String(args.category) : undefined,
+        alex_default_status: args.alex_default_status ? String(args.alex_default_status) : undefined,
+        diary_layer: args.diary_layer ? String(args.diary_layer) : undefined,
+        privacy_risk: args.privacy_risk ? String(args.privacy_risk) : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : undefined,
+      });
+    }
+    else if (tool === 'wall_check') result = wallCheck(String(args.character ?? ''));
+    else if (tool === 'get_character') result = characterLookup(String(args.name ?? ''));
+    else if (tool === 'append_ledger') {
+      result = await appendLedger({
+        session: args.session ? String(args.session) : undefined,
+        date: args.date ? String(args.date) : undefined,
+        category: String(args.category ?? ''),
+        fact: String(args.fact ?? ''),
+        source: args.source ? String(args.source) : undefined,
+      });
+    }
+    else if (tool === 'scene_builder') {
       result = buildSceneBrief({
         premise: String(args.premise ?? ''),
         location: args.location ? String(args.location) : undefined,
