@@ -6,6 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  canonCheck,
   getCanonFile,
   listCanonFiles,
   searchCanon,
@@ -18,7 +19,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'aw-20-mcp',
-      version: '0.6.0',
+      version: '0.7.0',
     },
     {
       capabilities: {
@@ -29,6 +30,20 @@ function createServer() {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      {
+        name: 'canon_check',
+        description: 'Check whether a name, concept, place, object, event, or claim is supported by AW_20 canon before using it in writing.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The canon claim, name, concept, object, event, or place to validate.',
+            },
+          },
+          required: ['query'],
+        },
+      },
       {
         name: 'search_canon',
         description: 'Weighted keyword search across AW_20 canon files.',
@@ -91,7 +106,8 @@ function createServer() {
 
     let result: unknown;
 
-    if (tool === 'search_canon') result = searchCanon(String(args.query ?? ''));
+    if (tool === 'canon_check') result = canonCheck(String(args.query ?? ''));
+    else if (tool === 'search_canon') result = searchCanon(String(args.query ?? ''));
     else if (tool === 'semantic_search') result = semanticSearch(String(args.query ?? ''));
     else if (tool === 'list_canon_files') result = listCanonFiles();
     else if (tool === 'get_canon_file') result = getCanonFile(String(args.path ?? '')) ?? null;
