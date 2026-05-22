@@ -25,6 +25,30 @@ const NAMED_POSITION_MAP: Record<string, string> = {
   rocco: 'Brain Trust: Apple / Iris / Lila / Kaia / Rocco',
 };
 
+const PUBLIC_LAYER_TERMS = [
+  'press',
+  'the press',
+  'tabloid',
+  'tabloids',
+  'journalist',
+  'journalists',
+  'reporter',
+  'reporters',
+  'media',
+  'paparazzi',
+  'pap',
+  'paps',
+  'fan',
+  'fans',
+  'public',
+  'public layer',
+  'social media',
+  'twitter',
+  'x',
+  'tiktok',
+  'instagram',
+];
+
 const POSITION_ALIASES: Record<string, string[]> = {
   'Alex': ['alex'],
   'Rosie / Homer': ['rosie', 'homer'],
@@ -33,11 +57,11 @@ const POSITION_ALIASES: Record<string, string[]> = {
   'Brain Trust: Apple / Iris / Lila / Kaia / Rocco': ['apple', 'iris', 'lila', 'kaia', 'rocco', 'brain trust'],
   'Close peers outside Brain Trust': ['close peer', 'peer'],
   'London Lot': ['london lot'],
-  'Serena Management': ['serena management', 'serena', 'latham', 'management', 'manager', 'pr', 'publicist'],
+  'Serena Management': ['serena management', 'serena', 'latham', 'management', 'manager', 'publicist', 'comms team', 'pr team'],
   'AW family-office staff': ['family office', 'aw staff'],
   'Knight Frank / household staff': ['knight frank', 'household staff', 'household', 'butler', 'house manager'],
   'Walker Holdings staff': ['walker holdings'],
-  'Press / fans': ['press', 'fan', 'fans', 'journalist', 'paparazzi'],
+  'Press / fans': PUBLIC_LAYER_TERMS,
 };
 
 function parseMarkdownTable(content: string): Array<Record<string, string>> {
@@ -58,6 +82,14 @@ function parseMarkdownTable(content: string): Array<Record<string, string>> {
   });
 }
 
+function hasPublicLayerTerm(character: string): boolean {
+  const normalised = character.toLowerCase();
+  return PUBLIC_LAYER_TERMS.some((term) => {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|\\b)${escaped}(\\b|$)`, 'i').test(normalised);
+  });
+}
+
 function namedMatch(character: string): string | undefined {
   const normalised = character.toLowerCase();
 
@@ -69,16 +101,23 @@ function namedMatch(character: string): string | undefined {
 }
 
 function aliasMatch(character: string): string | undefined {
+  if (hasPublicLayerTerm(character)) return 'Press / fans';
+
   const normalised = character.toLowerCase();
 
   for (const [position, aliases] of Object.entries(POSITION_ALIASES)) {
-    if (aliases.some((alias) => normalised.includes(alias))) return position;
+    if (aliases.some((alias) => {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(^|\\b)${escaped}(\\b|$)`, 'i').test(normalised);
+    })) return position;
   }
 
   return undefined;
 }
 
 function inferFromSearch(character: string): string | undefined {
+  if (hasPublicLayerTerm(character)) return 'Press / fans';
+
   const evidence = searchCanon(`${character} Serena Management Knight Frank family office Walker Holdings Brain Trust London Lot`, 5);
   const combined = evidence.map((result) => `${result.title}\n${result.path}\n${result.excerpt}`).join('\n').toLowerCase();
 
@@ -93,6 +132,8 @@ function inferFromSearch(character: string): string | undefined {
 }
 
 function resolvePosition(character: string): { position?: string; resolution: WallCheckResult['resolution'] } {
+  if (hasPublicLayerTerm(character)) return { position: 'Press / fans', resolution: 'role-alias' };
+
   const named = namedMatch(character);
   if (named) return { position: named, resolution: 'named-map' };
 
