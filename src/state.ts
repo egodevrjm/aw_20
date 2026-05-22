@@ -47,6 +47,54 @@ function githubApiUrl(): string {
   return `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_STATE_PATH}`;
 }
 
+function normalizeContinuityNotes(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+
+  if (Array.isArray(value)) {
+    return value.map(String).map((note) => note.trim()).filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).map((note) => note.trim()).filter(Boolean);
+      }
+    } catch {
+      // Not JSON; treat as plain text below.
+    }
+
+    if (trimmed.includes('\n')) {
+      return trimmed.split('\n').map((note) => note.trim()).filter(Boolean);
+    }
+
+    return [trimmed];
+  }
+
+  return [String(value).trim()].filter(Boolean);
+}
+
+function normalizeStoryStateInput(partial: Partial<StoryState>): Partial<StoryState> {
+  const normalized: Partial<StoryState> = { ...partial };
+  const continuityNotes = normalizeContinuityNotes((partial as Record<string, unknown>).continuityNotes);
+
+  if (continuityNotes !== undefined) {
+    normalized.continuityNotes = continuityNotes;
+  }
+
+  return normalized;
+}
+
+function normalizeStoryState(state: StoryState): StoryState {
+  return {
+    ...state,
+    continuityNotes: normalizeContinuityNotes(state.continuityNotes) ?? [],
+  };
+}
+
 async function readGithubState(): Promise<{ state: StoryState; sha?: string }> {
   const token = getToken();
   if (!token) {
@@ -81,7 +129,7 @@ async function readGithubState(): Promise<{ state: StoryState; sha?: string }> {
 
   const data = await response.json() as { content: string; sha: string };
   const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
-  const state = JSON.parse(decoded) as StoryState;
+  const state = normalizeStoryState(JSON.parse(decoded) as StoryState);
 
   return {
     state: {
@@ -98,11 +146,13 @@ async function readGithubState(): Promise<{ state: StoryState; sha?: string }> {
 
 async function writeGithubState(state: StoryState, sha?: string): Promise<StoryState> {
   const token = getToken();
-  if (!token) return writeLocalState(state);
+  const normalizedState = normalizeStoryState(state);
+
+  if (!token) return writeLocalState(normalizedState);
 
   const body: Record<string, unknown> = {
     message: 'Update AW_20 story state',
-    content: Buffer.from(JSON.stringify(state, null, 2)).toString('base64'),
+    content: Buffer.from(JSON.stringify(normalizedState, null, 2)).toString('base64'),
     branch: GITHUB_BRANCH,
   };
 
@@ -121,7 +171,7 @@ async function writeGithubState(state: StoryState, sha?: string): Promise<StoryS
 
   if (!response.ok) {
     return {
-      ...writeLocalState(state),
+      ...writeLocalState(normalizedState),
       persistence: {
         provider: 'local-ephemeral',
         durable: false,
@@ -131,7 +181,7 @@ async function writeGithubState(state: StoryState, sha?: string): Promise<StoryS
   }
 
   return {
-    ...state,
+    ...normalizedState,
     persistence: {
       provider: 'github',
       durable: true,
@@ -148,7 +198,7 @@ function readLocalState(): StoryState {
   }
 
   return {
-    ...(JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) as StoryState),
+    ...normalizeStoryState(JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) as StoryState),
     persistence: {
       provider: 'local-ephemeral',
       durable: false,
@@ -159,10 +209,11 @@ function readLocalState(): StoryState {
 
 function writeLocalState(state: StoryState): StoryState {
   ensureStateDirectory();
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  const normalizedState = normalizeStoryState(state);
+  fs.writeFileSync(STATE_FILE, JSON.stringify(normalizedState, null, 2));
 
   return {
-    ...state,
+    ...normalizedState,
     persistence: {
       provider: 'local-ephemeral',
       durable: false,
@@ -179,13 +230,14 @@ export async function getStoryState(): Promise<StoryState> {
 }
 
 export async function updateStoryState(partial: Partial<StoryState>): Promise<StoryState> {
+  const normalizedPartial = normalizeStoryStateInput(partial);
   const token = getToken();
 
   if (!token) {
     const current = readLocalState();
     return writeLocalState({
       ...current,
-      ...partial,
+      ...normalizedPartial,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -193,7 +245,7 @@ export async function updateStoryState(partial: Partial<StoryState>): Promise<St
   const { state: current, sha } = await readGithubState();
   const updated: StoryState = {
     ...current,
-    ...partial,
+    ...normalizedPartial,
     updatedAt: new Date().toISOString(),
   };
 
