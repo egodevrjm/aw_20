@@ -102,5 +102,13 @@
     "category": "DIARY",
     "fact": "Chicken Shop Date filming, Peckham (booked)",
     "createdAt": "2026-05-22T16:07:02.706Z"
+  },
+  {
+    "id": "U2Vzc2lvbiAxfDIwMjUtMDgt",
+    "session": "Session 1",
+    "date": "2025-08-27",
+    "category": "DIARY",
+    "fact": "Hot Ones filming, New York, pre-NYFW (booked)",
+    "createdAt": "2026-05-22T16:07:08.958Z"
   }
 ]
