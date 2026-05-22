@@ -1,0 +1,9 @@
+{
+  "updatedAt": "2026-05-22T08:39:03.440Z",
+  "continuityNotes": "[\"Test write — MCP state persistence check, 22 May 2026\"]",
+  "persistence": {
+    "provider": "github",
+    "durable": true,
+    "message": "No persisted GitHub state file found yet; a new one will be created on update."
+  }
+}
