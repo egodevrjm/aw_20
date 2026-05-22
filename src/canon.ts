@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import canonIndex from '../canon-index.json' with { type: 'json' };
 
 export type CanonDocument = {
   path: string;
@@ -15,6 +16,14 @@ export type SearchResult = {
   title: string;
   score: number;
   excerpt: string;
+};
+
+export type CanonCheckResult = {
+  query: string;
+  verdict: 'canonical' | 'partial' | 'ambiguous' | 'not_found';
+  confidence: number;
+  guidance: string;
+  matches: SearchResult[];
 };
 
 export type CanonSummary = {
@@ -68,7 +77,18 @@ function countWords(content: string): number {
   return content.trim().split(/\s+/).filter(Boolean).length;
 }
 
-export function loadCanon(): CanonDocument[] {
+function normaliseIndexedDocument(document: any): CanonDocument {
+  return {
+    path: document.path,
+    title: document.title,
+    content: document.content,
+    headings: document.headings ?? extractHeadings(document.content),
+    category: document.category ?? inferCategory(document.path),
+    wordCount: document.wordCount ?? countWords(document.content),
+  };
+}
+
+function loadFilesystemCanon(): CanonDocument[] {
   return walkDirectory(CANON_DIR).map((fullPath) => {
     const content = fs.readFileSync(fullPath, 'utf-8');
     const relativePath = normaliseRelativePath(fullPath);
@@ -82,6 +102,13 @@ export function loadCanon(): CanonDocument[] {
       wordCount: countWords(content),
     };
   });
+}
+
+export function loadCanon(): CanonDocument[] {
+  const filesystemDocuments = loadFilesystemCanon();
+  if (filesystemDocuments.length > 0) return filesystemDocuments;
+
+  return (canonIndex as any[]).map(normaliseIndexedDocument);
 }
 
 function makeExcerpt(content: string, query: string, length = 420): string {
@@ -132,6 +159,51 @@ export function searchCanon(query: string, limit = 10): SearchResult[] {
     .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
     .slice(0, limit);
+}
+
+export function canonCheck(query: string, limit = 5): CanonCheckResult {
+  const trimmedQuery = query.trim();
+  const matches = searchCanon(trimmedQuery, limit);
+  const exactTitle = loadCanon().some((document) => document.title.toLowerCase() === trimmedQuery.toLowerCase());
+  const exactPath = loadCanon().some((document) => document.path.toLowerCase().includes(trimmedQuery.toLowerCase()));
+
+  if (exactTitle || exactPath || matches[0]?.score >= 18) {
+    return {
+      query: trimmedQuery,
+      verdict: 'canonical',
+      confidence: exactTitle || exactPath ? 0.95 : 0.82,
+      guidance: 'Treat this as canon. Use the supporting matches as grounding before writing.',
+      matches,
+    };
+  }
+
+  if (matches.length > 1 && matches[0].score === matches[1].score) {
+    return {
+      query: trimmedQuery,
+      verdict: 'ambiguous',
+      confidence: 0.55,
+      guidance: 'The concept appears in canon, but the match is ambiguous. Ask for or retrieve more context before making a specific claim.',
+      matches,
+    };
+  }
+
+  if (matches.length > 0) {
+    return {
+      query: trimmedQuery,
+      verdict: 'partial',
+      confidence: 0.65,
+      guidance: 'There is partial support in canon. Avoid adding specific new facts unless the match clearly supports them.',
+      matches,
+    };
+  }
+
+  return {
+    query: trimmedQuery,
+    verdict: 'not_found',
+    confidence: 0.2,
+    guidance: 'Not found in available canon. Treat as non-canon unless the user explicitly introduces it.',
+    matches: [],
+  };
 }
 
 export function searchByCategory(category: string, query = '', limit = 20): SearchResult[] {
