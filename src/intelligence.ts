@@ -1,4 +1,4 @@
-import { CanonDocument, loadCanon, searchCanon } from './canon.js';
+import { CanonDocument, canonCheck, loadCanon, searchCanon } from './canon.js';
 
 export type CanonChunk = {
   id: string;
@@ -15,6 +15,28 @@ export type ContextPack = {
   documents: ReturnType<typeof searchCanon>;
   chunks: CanonChunk[];
   suggestedPrompt: string;
+};
+
+export type SceneBuilderInput = {
+  premise: string;
+  location?: string;
+  characters?: string[];
+  purpose?: string;
+  tone?: string;
+};
+
+export type SceneBuilderOutput = {
+  premise: string;
+  purpose?: string;
+  tone?: string;
+  canonStatus: ReturnType<typeof canonCheck>[];
+  suggestedCharacters: ReturnType<typeof searchCanon>;
+  suggestedLocations: ReturnType<typeof searchCanon>;
+  settingBrief: CanonChunk[];
+  relevantContext: CanonChunk[];
+  roomAndBuildingNotes: string[];
+  continuityWarnings: string[];
+  scenePrompt: string;
 };
 
 export type ConflictFinding = {
@@ -112,6 +134,65 @@ export function buildContextPack(query: string): ContextPack {
     documents,
     chunks,
     suggestedPrompt: `Use the following AW_20 canon context to answer questions about: ${query}`,
+  };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+export function buildSceneBrief(input: SceneBuilderInput): SceneBuilderOutput {
+  const premise = input.premise.trim();
+  const location = input.location?.trim();
+  const characters = input.characters ?? [];
+  const purpose = input.purpose?.trim();
+  const tone = input.tone?.trim();
+
+  const lookupTerms = uniqueStrings([
+    premise,
+    location ?? '',
+    ...characters,
+    purpose ?? '',
+    tone ?? '',
+  ]);
+
+  const canonStatus = lookupTerms.slice(0, 12).map((term) => canonCheck(term));
+  const suggestedCharacters = searchCanon(`characters ${characters.join(' ')} ${premise}`, 8);
+  const suggestedLocations = searchCanon(`locations ${location ?? ''} ${premise}`, 8);
+  const settingBrief = searchChunks(`${location ?? ''} room building house studio residence ${premise}`, 10);
+  const relevantContext = searchChunks(lookupTerms.join(' '), 16);
+
+  const roomAndBuildingNotes = settingBrief.length
+    ? settingBrief.map((chunk) => `${chunk.title} / ${chunk.heading}: ${chunk.text.slice(0, 280)}`)
+    : ['No specific room/building canon found. Use a neutral setting unless the user supplies one.'];
+
+  const continuityWarnings = canonStatus
+    .filter((status) => status.verdict === 'not_found' || status.verdict === 'ambiguous')
+    .map((status) => `${status.query}: ${status.guidance}`);
+
+  const namedCharacters = characters.length ? characters.join(', ') : 'Use only characters clearly supported by canon or introduced by the user.';
+  const sceneLocation = location ?? 'Choose the strongest canon-supported location from the context.';
+
+  return {
+    premise,
+    purpose,
+    tone,
+    canonStatus,
+    suggestedCharacters,
+    suggestedLocations,
+    settingBrief,
+    relevantContext,
+    roomAndBuildingNotes,
+    continuityWarnings,
+    scenePrompt: [
+      `Build a scene for: ${premise}`,
+      `Purpose: ${purpose ?? 'not specified'}`,
+      `Tone: ${tone ?? 'match canon and user instruction'}`,
+      `Characters: ${namedCharacters}`,
+      `Location: ${sceneLocation}`,
+      'Use only canon-supported details unless the user explicitly adds new facts.',
+      'Before writing, resolve any continuity warnings and ground the room/building description in settingBrief.',
+    ].join('\n'),
   };
 }
 
