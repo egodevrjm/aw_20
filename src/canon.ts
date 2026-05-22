@@ -34,10 +34,23 @@ export type CanonSummary = {
 };
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv']);
+const CANON_SOURCE_ROOT = path.resolve(process.env.AW20_CANON_ROOT ?? process.cwd());
+const SAMPLE_CANON_DIR = path.resolve(process.env.AW20_CANON_DIR ?? './canon');
+const IGNORED_DIRECTORIES = new Set([
+  '.git',
+  '.vercel',
+  '.netlify',
+  'node_modules',
+  'dist',
+  'public',
+  'api',
+  'src',
+  'netlify',
+  'supabase',
+  'docs',
+]);
 
-export const CANON_DIR = path.resolve(process.env.AW20_CANON_DIR ?? './canon');
-
-function walkDirectory(directory: string): string[] {
+function walkDirectory(directory: string, ignoredDirectories = IGNORED_DIRECTORIES): string[] {
   if (!fs.existsSync(directory)) return [];
 
   const entries = fs.readdirSync(directory, { withFileTypes: true });
@@ -47,7 +60,8 @@ function walkDirectory(directory: string): string[] {
     const fullPath = path.join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...walkDirectory(fullPath));
+      if (ignoredDirectories.has(entry.name)) continue;
+      files.push(...walkDirectory(fullPath, ignoredDirectories));
     } else if (entry.isFile() && SUPPORTED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
       files.push(fullPath);
     }
@@ -58,23 +72,41 @@ function walkDirectory(directory: string): string[] {
 
 function extractTitle(content: string, fallback: string): string {
   const markdownTitle = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  return markdownTitle || fallback;
+  return markdownTitle || fallback.replace(/\.md$/i, '').replace(/_/g, ' ');
 }
 
 function extractHeadings(content: string): string[] {
   return [...content.matchAll(/^#{1,6}\s+(.+)$/gm)].map((match) => match[1].trim());
 }
 
-function normaliseRelativePath(fullPath: string): string {
-  return path.relative(CANON_DIR, fullPath).split(path.sep).join('/');
-}
-
 function inferCategory(relativePath: string): string {
-  return relativePath.includes('/') ? relativePath.split('/')[0] : 'root';
+  if (relativePath.includes('/')) return relativePath.split('/')[0];
+
+  const filename = path.basename(relativePath);
+
+  if (/^\d+_/.test(filename)) return 'flat-canon';
+  if (/project/i.test(filename)) return 'instructions';
+  if (/readme/i.test(filename)) return 'meta';
+
+  return 'root';
 }
 
 function countWords(content: string): number {
   return content.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function toCanonDocument(fullPath: string, root: string): CanonDocument {
+  const content = fs.readFileSync(fullPath, 'utf-8');
+  const relativePath = path.relative(root, fullPath).split(path.sep).join('/');
+
+  return {
+    path: relativePath,
+    title: extractTitle(content, path.basename(relativePath)),
+    content,
+    headings: extractHeadings(content),
+    category: inferCategory(relativePath),
+    wordCount: countWords(content),
+  };
 }
 
 function normaliseIndexedDocument(document: any): CanonDocument {
@@ -88,30 +120,31 @@ function normaliseIndexedDocument(document: any): CanonDocument {
   };
 }
 
-function loadFilesystemCanon(): CanonDocument[] {
-  return walkDirectory(CANON_DIR).map((fullPath) => {
-    const content = fs.readFileSync(fullPath, 'utf-8');
-    const relativePath = normaliseRelativePath(fullPath);
+function loadRootFlatCanon(): CanonDocument[] {
+  const files = walkDirectory(CANON_SOURCE_ROOT)
+    .filter((file) => path.extname(file).toLowerCase() === '.md')
+    .filter((file) => !path.relative(CANON_SOURCE_ROOT, file).startsWith(`canon${path.sep}`));
 
-    return {
-      path: relativePath,
-      title: extractTitle(content, path.basename(relativePath)),
-      content,
-      headings: extractHeadings(content),
-      category: inferCategory(relativePath),
-      wordCount: countWords(content),
-    };
-  });
+  return files.map((file) => toCanonDocument(file, CANON_SOURCE_ROOT));
+}
+
+function loadSampleCanon(): CanonDocument[] {
+  const files = walkDirectory(SAMPLE_CANON_DIR, new Set());
+  return files.map((file) => toCanonDocument(file, SAMPLE_CANON_DIR));
 }
 
 export function loadCanon(): CanonDocument[] {
-  const filesystemDocuments = loadFilesystemCanon();
-  if (filesystemDocuments.length > 0) return filesystemDocuments;
+  const rootDocuments = loadRootFlatCanon();
+
+  if (rootDocuments.length > 5) return rootDocuments;
+
+  const sampleDocuments = loadSampleCanon();
+  if (sampleDocuments.length > 0) return sampleDocuments;
 
   return (canonIndex as any[]).map(normaliseIndexedDocument);
 }
 
-function makeExcerpt(content: string, query: string, length = 420): string {
+function makeExcerpt(content: string, query: string, length = 700): string {
   const lowerContent = content.toLowerCase();
   const lowerQuery = query.toLowerCase();
   const index = lowerContent.indexOf(lowerQuery);
@@ -130,17 +163,20 @@ function scoreDocument(document: CanonDocument, query: string): number {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const title = document.title.toLowerCase();
   const pathName = document.path.toLowerCase();
+  const headings = document.headings.join(' ').toLowerCase();
   const content = document.content.toLowerCase();
 
   let score = 0;
 
   for (const term of terms) {
-    if (title.includes(term)) score += 10;
-    if (pathName.includes(term)) score += 6;
-    score += (content.match(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).length;
+    const safeTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (title.includes(term)) score += 12;
+    if (pathName.includes(term)) score += 8;
+    if (headings.includes(term)) score += 5;
+    score += (content.match(new RegExp(safeTerm, 'g')) ?? []).length;
   }
 
-  if (content.includes(query.toLowerCase())) score += 8;
+  if (content.includes(query.toLowerCase())) score += 10;
 
   return score;
 }
@@ -163,9 +199,10 @@ export function searchCanon(query: string, limit = 10): SearchResult[] {
 
 export function canonCheck(query: string, limit = 5): CanonCheckResult {
   const trimmedQuery = query.trim();
+  const canon = loadCanon();
   const matches = searchCanon(trimmedQuery, limit);
-  const exactTitle = loadCanon().some((document) => document.title.toLowerCase() === trimmedQuery.toLowerCase());
-  const exactPath = loadCanon().some((document) => document.path.toLowerCase().includes(trimmedQuery.toLowerCase()));
+  const exactTitle = canon.some((document) => document.title.toLowerCase() === trimmedQuery.toLowerCase());
+  const exactPath = canon.some((document) => document.path.toLowerCase().includes(trimmedQuery.toLowerCase()));
 
   if (exactTitle || exactPath || matches[0]?.score >= 18) {
     return {
@@ -214,7 +251,7 @@ export function searchByCategory(category: string, query = '', limit = 20): Sear
       path: document.path,
       title: document.title,
       score: 1,
-      excerpt: document.content.slice(0, 420).trim(),
+      excerpt: document.content.slice(0, 700).trim(),
     }));
   }
 
@@ -289,7 +326,7 @@ export function findRelated(pathOrTitle: string, limit = 8): SearchResult[] {
       path: document.path,
       title: document.title,
       score: scoreDocument(document, seed),
-      excerpt: document.content.slice(0, 420).trim(),
+      excerpt: document.content.slice(0, 700).trim(),
     }))
     .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
