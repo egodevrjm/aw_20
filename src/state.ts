@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+export type PersistenceProvider = 'github' | 'local-ephemeral';
+
 export type StoryState = {
   currentArc?: string;
   activeTimeline?: string;
   continuityNotes?: string[];
   updatedAt: string;
   persistence?: {
-    provider: 'github' | 'local-ephemeral';
+    provider: PersistenceProvider;
     durable: boolean;
     message: string;
   };
@@ -19,7 +21,7 @@ const GITHUB_STATE_PATH = process.env.AW20_STATE_PATH ?? 'state/story-state.json
 const GITHUB_REPO = process.env.AW20_STATE_REPO ?? 'egodevrjm/aw_20';
 const GITHUB_BRANCH = process.env.AW20_STATE_BRANCH ?? 'main';
 
-function baseState(provider: StoryState['persistence']['provider'], durable: boolean, message: string): StoryState {
+function baseState(provider: PersistenceProvider, durable: boolean, message: string): StoryState {
   return {
     updatedAt: new Date().toISOString(),
     continuityNotes: [],
