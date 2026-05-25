@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 export type CalendarEvent = Record<string, string>;
 
@@ -13,6 +14,8 @@ export type CalendarQueryInput = {
   alex_default_status?: string;
   diary_layer?: string;
   privacy_risk?: string;
+  visibility?: string;
+  likely_rooms?: string;
   limit?: number;
 };
 
@@ -20,6 +23,36 @@ export type CalendarQueryResult = {
   query: CalendarQueryInput;
   count: number;
   events: CalendarEvent[];
+};
+
+export type CalendarMetadata = {
+  eventCount: number;
+  columns: string[];
+  firstDate?: string;
+  lastDate?: string;
+  hash: string;
+};
+
+export type CalendarBrief = {
+  start_date: string;
+  end_date: string;
+  summary: {
+    totalEvents: number;
+    attendedOrCompleted: number;
+    publicWeather: number;
+    highPrivacyRisk: number;
+    mediumPrivacyRisk: number;
+  };
+  hardEvents: CalendarEvent[];
+  publicWeather: CalendarEvent[];
+  privacyRisks: CalendarEvent[];
+  sceneGuidance: string[];
+};
+
+export type EventLookupResult = {
+  query: string;
+  event?: CalendarEvent;
+  matches: CalendarEvent[];
 };
 
 const CALENDAR_PATH = path.resolve(process.cwd(), '54_EVENTS_DIARY_CALENDAR.csv');
@@ -75,9 +108,15 @@ function parseCsv(text: string): CalendarEvent[] {
   });
 }
 
+function rawCalendar(): string {
+  if (!fs.existsSync(CALENDAR_PATH)) return '';
+  return fs.readFileSync(CALENDAR_PATH, 'utf-8');
+}
+
 export function loadCalendar(): CalendarEvent[] {
-  if (!fs.existsSync(CALENDAR_PATH)) return [];
-  return parseCsv(fs.readFileSync(CALENDAR_PATH, 'utf-8'));
+  const raw = rawCalendar();
+  if (!raw) return [];
+  return parseCsv(raw);
 }
 
 function inDateRange(event: CalendarEvent, start?: string, end?: string): boolean {
@@ -116,10 +155,22 @@ function rank(value: string, table: Record<string, number>): number {
   return table[value] ?? 99;
 }
 
+function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((a, b) => {
+    const dateCompare = (a.start_date ?? '').localeCompare(b.start_date ?? '');
+    if (dateCompare !== 0) return dateCompare;
+
+    const statusCompare = rank(a.alex_default_status, STATUS_PRIORITY) - rank(b.alex_default_status, STATUS_PRIORITY);
+    if (statusCompare !== 0) return statusCompare;
+
+    return rank(a.diary_layer, DIARY_LAYER_PRIORITY) - rank(b.diary_layer, DIARY_LAYER_PRIORITY);
+  });
+}
+
 export function queryCalendar(input: CalendarQueryInput): CalendarQueryResult {
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
 
-  const events = loadCalendar()
+  const events = sortEvents(loadCalendar()
     .filter((event) => inDateRange(event, input.start_date, input.end_date))
     .filter((event) => contains(event.city, input.city))
     .filter((event) => contains(event.country, input.country))
@@ -128,20 +179,86 @@ export function queryCalendar(input: CalendarQueryInput): CalendarQueryResult {
     .filter((event) => contains(event.alex_default_status, input.alex_default_status))
     .filter((event) => contains(event.diary_layer, input.diary_layer))
     .filter((event) => contains(event.privacy_risk, input.privacy_risk))
-    .sort((a, b) => {
-      const dateCompare = (a.start_date ?? '').localeCompare(b.start_date ?? '');
-      if (dateCompare !== 0) return dateCompare;
-
-      const statusCompare = rank(a.alex_default_status, STATUS_PRIORITY) - rank(b.alex_default_status, STATUS_PRIORITY);
-      if (statusCompare !== 0) return statusCompare;
-
-      return rank(a.diary_layer, DIARY_LAYER_PRIORITY) - rank(b.diary_layer, DIARY_LAYER_PRIORITY);
-    })
+    .filter((event) => contains(event.visibility, input.visibility))
+    .filter((event) => contains(event.likely_rooms, input.likely_rooms)))
     .slice(0, limit);
 
   return {
     query: input,
     count: events.length,
     events,
+  };
+}
+
+export function calendarMetadata(): CalendarMetadata {
+  const raw = rawCalendar();
+  const events = loadCalendar();
+  const columns = raw ? parseCsvLine(raw.split(/\r?\n/)[0]) : [];
+  const dates = events.map((event) => event.start_date).filter(Boolean).sort();
+
+  return {
+    eventCount: events.length,
+    columns,
+    firstDate: dates[0],
+    lastDate: dates[dates.length - 1],
+    hash: crypto.createHash('sha256').update(raw).digest('hex'),
+  };
+}
+
+export function getEvent(query: string): EventLookupResult {
+  const normalised = query.toLowerCase();
+  const matches = loadCalendar().filter((event) =>
+    event.event_id?.toLowerCase() === normalised ||
+    event.event_name?.toLowerCase().includes(normalised) ||
+    event.canon_note?.toLowerCase().includes(normalised)
+  );
+
+  return {
+    query,
+    event: matches[0],
+    matches: matches.slice(0, 10),
+  };
+}
+
+export function calendarWindowBrief(start_date: string, end_date: string): CalendarBrief {
+  const events = queryCalendar({ start_date, end_date, limit: 200 }).events;
+  const hardEvents = events.filter((event) => ['attended', 'completed', 'default'].includes(event.alex_default_status));
+  const publicWeather = events.filter((event) => event.diary_layer === 'public_weather' || event.alex_default_status === 'public_weather');
+  const privacyRisks = events.filter((event) => ['high', 'medium'].includes(event.privacy_risk));
+
+  const sceneGuidance = [
+    hardEvents.length
+      ? 'There are canon/personal commitments in this window; check them before scheduling scenes.'
+      : 'No hard personal commitments found in this window.',
+    publicWeather.length
+      ? 'Public-world events exist in this window; use them as background chatter/weather, not default attendance.'
+      : 'No major public-weather events found in this window.',
+    privacyRisks.some((event) => event.privacy_risk === 'high')
+      ? 'High privacy-risk events exist; avoid casual public exposure unless canon says it happens.'
+      : 'No high privacy-risk event flagged in this window.',
+  ];
+
+  return {
+    start_date,
+    end_date,
+    summary: {
+      totalEvents: events.length,
+      attendedOrCompleted: hardEvents.length,
+      publicWeather: publicWeather.length,
+      highPrivacyRisk: privacyRisks.filter((event) => event.privacy_risk === 'high').length,
+      mediumPrivacyRisk: privacyRisks.filter((event) => event.privacy_risk === 'medium').length,
+    },
+    hardEvents,
+    publicWeather,
+    privacyRisks,
+    sceneGuidance,
+  };
+}
+
+export function privacyRiskScan(start_date: string, end_date: string): CalendarQueryResult {
+  return {
+    query: { start_date, end_date, privacy_risk: 'high', limit: 200 },
+    count: queryCalendar({ start_date, end_date, privacy_risk: 'high', limit: 200 }).count,
+    events: queryCalendar({ start_date, end_date, privacy_risk: 'high', limit: 200 }).events,
   };
 }
