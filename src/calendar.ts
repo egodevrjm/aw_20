@@ -31,6 +31,7 @@ export type CalendarMetadata = {
   firstDate?: string;
   lastDate?: string;
   hash: string;
+  sources: string[];
 };
 
 export type CalendarBrief = {
@@ -55,7 +56,10 @@ export type EventLookupResult = {
   matches: CalendarEvent[];
 };
 
-const CALENDAR_PATH = path.resolve(process.cwd(), '54_EVENTS_DIARY_CALENDAR.csv');
+const CALENDAR_PATHS = [
+  path.resolve(process.cwd(), '54_EVENTS_DIARY_CALENDAR.csv'),
+  path.resolve(process.cwd(), '54_EVENTS_DIARY_CALENDAR_SUPPLEMENT_2026_2027.csv'),
+];
 
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
@@ -108,15 +112,27 @@ function parseCsv(text: string): CalendarEvent[] {
   });
 }
 
+function existingCalendarFiles(): string[] {
+  return CALENDAR_PATHS.filter((filePath) => fs.existsSync(filePath));
+}
+
 function rawCalendar(): string {
-  if (!fs.existsSync(CALENDAR_PATH)) return '';
-  return fs.readFileSync(CALENDAR_PATH, 'utf-8');
+  return existingCalendarFiles()
+    .map((filePath) => fs.readFileSync(filePath, 'utf-8'))
+    .join('\n');
 }
 
 export function loadCalendar(): CalendarEvent[] {
-  const raw = rawCalendar();
-  if (!raw) return [];
-  return parseCsv(raw);
+  const byId = new Map<string, CalendarEvent>();
+
+  for (const filePath of existingCalendarFiles()) {
+    for (const event of parseCsv(fs.readFileSync(filePath, 'utf-8'))) {
+      const key = event.event_id || `${event.event_name}-${event.start_date}-${event.end_date}`;
+      byId.set(key, event);
+    }
+  }
+
+  return [...byId.values()];
 }
 
 function inDateRange(event: CalendarEvent, start?: string, end?: string): boolean {
@@ -193,7 +209,8 @@ export function queryCalendar(input: CalendarQueryInput): CalendarQueryResult {
 export function calendarMetadata(): CalendarMetadata {
   const raw = rawCalendar();
   const events = loadCalendar();
-  const columns = raw ? parseCsvLine(raw.split(/\r?\n/)[0]) : [];
+  const firstFile = existingCalendarFiles()[0];
+  const columns = firstFile ? parseCsvLine(fs.readFileSync(firstFile, 'utf-8').split(/\r?\n/)[0]) : [];
   const dates = events.map((event) => event.start_date).filter(Boolean).sort();
 
   return {
@@ -202,6 +219,7 @@ export function calendarMetadata(): CalendarMetadata {
     firstDate: dates[0],
     lastDate: dates[dates.length - 1],
     hash: crypto.createHash('sha256').update(raw).digest('hex'),
+    sources: existingCalendarFiles().map((filePath) => path.basename(filePath)),
   };
 }
 
