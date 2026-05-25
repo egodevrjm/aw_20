@@ -2,7 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/mcp.ts": {
-      "includeFiles": "{*.md,canon-index.json,canon/**}"
+      "includeFiles": "{*.md,*.csv,canon-index.json,canon/**}"
+    },
+    "api/calendar-mcp.ts": {
+      "includeFiles": "54_EVENTS_DIARY_CALENDAR.csv"
     }
   }
 }
